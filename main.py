@@ -1,121 +1,77 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import aiopg
-from sqlalchemy import Column, Integer, String, MetaData, Table, ForeignKey
-from typing import List
+from sqlalchemy import MetaData
+from typing import List, Optional
+from datetime import datetime
 
 app = FastAPI()
 
+
 async def create_pool():
-    return await aiopg.create_pool("postgres://sourav:mZ5mLQG4wwWcmz3oF02LA3reD7ukm7qL@dpg-cig640d9aq012etvhjt0-a.oregon-postgres.render.com/consumer")
+    return await aiopg.create_pool(
+        "postgres://pcpjrkwk:1la04HSiD4BX-J8ewUdflOTt6aDx8z6D@trumpet.db.elephantsql.com/pcpjrkwk")
+
 
 metadata = MetaData()
 
-consumer_table = Table(
-    "consumer",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("conn_type", String(255)),
-    Column("phone_no", String(255)),
-    Column("email", String(255)),
-    Column("password", String(255))
-)
 
-conn_individual_table = Table(
-    "conn_individual",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("ini_name", String(255)),
-    Column("add", String(255)),
-    Column("zip", String(255)),
-    Column("consumer_id", Integer, ForeignKey("consumer.id"))
-)
-
-conn_ngo_table = Table(
-    "conn_ngo",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("ngo_name", String(255)),
-    Column("add", String(255)),
-    Column("zip", String(255)),
-    Column("licence", String(255)),
-    Column("consumer_id", Integer, ForeignKey("consumer.id"))
-)
-
-supplier_table = Table(
-    "supplier",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("name", String(255)),
-    Column("type", String(255)),
-    Column("phone", String(255)),
-    Column("email", String(255)),
-    Column("password", String(255))
-)
-
-fnb_table = Table(
-    "fnb",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("name", String(255)),
-    Column("address", String(255)),
-    Column("zip", String(255)),
-    Column("licence", String(255)),
-    Column("supplier_id", Integer, ForeignKey("supplier.id"))
-)
-
-individual_table = Table(
-    "individual",
-    metadata,
-    Column("id", Integer, primary_key=True),
-    Column("address", String(255)),
-    Column("zip", String(255)),
-    Column("supplier_id", Integer, ForeignKey("supplier.id"))
-)
-
-class Consumer(BaseModel):
+class User(BaseModel):
     id: int
-    conn_type: str
-    phone_no: str
-    email: str
-    password: str
-
-class ConnIndividual(BaseModel):
-    id: int
-    ini_name: str
-    add: str
-    zip: str
-    consumer_id: int
-
-class ConnNgo(BaseModel):
-    id: int
-    ngo_name: str
-    add: str
-    zip: str
-    licence: str
-    consumer_id: int
-
-class Supplier(BaseModel):
-    id: int
-    name: str
-    type: str
+    username: str
     phone: str
     email: str
     password: str
-
-class Fnb(BaseModel):
-    id: int
-    name: str
     address: str
     zip: str
-    licence: str
-    supplier_id: int
 
-class Individual(BaseModel):
+
+class Consumer(BaseModel):
     id: int
-    address: str
-    zip: str
+    user_id: int
+    type: str
+    license: str
+
+
+class Supplier(BaseModel):
+    id: int
+    user_id: int
+    type: str
+    masked: str
+    license: str
+
+
+class RequestedFood(BaseModel):
+    id: int
+    consumer_id: int
+    category_type: int
+    vegetarian_status: bool
+    quantity: int
+    active: bool
+    time: Optional[datetime] = None
+
+
+class SurplusFood(BaseModel):
+    id: int
     supplier_id: int
+    category_type: int
+    vegetarian_status: bool
+    quantity: int
+    active: bool
+    expiry: Optional[datetime] = None
+    description: str
+
+
+class Matching(BaseModel):
+    id: int
+    requested_food_id: int
+    supplier_food_id: int
+    status: str
+
+
+class CategoryType(BaseModel):
+    id: int
+    category: str
 
 
 async def get_pool():
@@ -123,40 +79,148 @@ async def get_pool():
         app.state.db_pool = await create_pool()
     return app.state.db_pool
 
+
 @app.on_event("startup")
 async def startup_event():
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
+                CREATE TABLE IF NOT EXISTS category_type (
+                    id SERIAL PRIMARY KEY,
+                    category VARCHAR(255) DEFAULT NULL
+                )
+            """)
+
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS "user" (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(255) DEFAULT NULL,
+                    phone VARCHAR(255) DEFAULT NULL,
+                    email VARCHAR(255) DEFAULT NULL,
+                    password VARCHAR(255) DEFAULT NULL,
+                    address VARCHAR(255) DEFAULT NULL,
+                    zip VARCHAR(255) DEFAULT NULL
+                )
+            """)
+            await cur.execute("""
                 CREATE TABLE IF NOT EXISTS consumer (
                     id SERIAL PRIMARY KEY,
-                    conn_type VARCHAR(255),
-                    phone_no VARCHAR(255),
-                    email VARCHAR(255),
-                    password VARCHAR(255)
+                    user_id INTEGER REFERENCES "user" (id) ON DELETE CASCADE,
+                    type VARCHAR(255) DEFAULT NULL,
+                    license VARCHAR(255) DEFAULT NULL
                 )
             """)
             await cur.execute("""
-                CREATE TABLE IF NOT EXISTS conn_individual (
+                CREATE TABLE IF NOT EXISTS supplier (
                     id SERIAL PRIMARY KEY,
-                    ini_name VARCHAR(255),
-                    add VARCHAR(255),
-                    zip VARCHAR(255),
-                    consumer_id INTEGER REFERENCES consumer (id)
+                    user_id INTEGER REFERENCES "user" (id) ON DELETE CASCADE,
+                    type VARCHAR(255) DEFAULT NULL,
+                    masked VARCHAR(255) DEFAULT NULL,
+                    license VARCHAR(255) DEFAULT NULL
                 )
             """)
             await cur.execute("""
-                CREATE TABLE IF NOT EXISTS conn_ngo (
+                CREATE TABLE IF NOT EXISTS requested_food (
                     id SERIAL PRIMARY KEY,
-                    ngo_name VARCHAR(255),
-                    add VARCHAR(255),
-                    zip VARCHAR(255),
-                    licence VARCHAR(255),
-                    consumer_id INTEGER REFERENCES consumer (id)
+                    consumer_id INTEGER REFERENCES consumer (id) ON DELETE CASCADE,
+                    category_type INTEGER REFERENCES category_type (id) ON DELETE CASCADE,
+                    vegetarian_status BOOLEAN DEFAULT NULL,
+                    quantity INTEGER DEFAULT NULL,
+                    active BOOLEAN DEFAULT NULL,
+                    time TIMESTAMP DEFAULT NULL
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS surplus_food (
+                    id SERIAL PRIMARY KEY,
+                    supplier_id INTEGER REFERENCES supplier (id) ON DELETE CASCADE,
+                    category_type INTEGER REFERENCES category_type (id) ON DELETE CASCADE,
+                    vegetarian_status BOOLEAN DEFAULT NULL,
+                    quantity INTEGER DEFAULT NULL,
+                    active BOOLEAN DEFAULT NULL,
+                    expiry TIMESTAMP DEFAULT NULL,
+                    description VARCHAR(255) DEFAULT NULL
+                )
+            """)
+
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS matching (
+                    id SERIAL PRIMARY KEY,
+                    requested_food_id INTEGER REFERENCES requested_food (id) ON DELETE CASCADE,
+                    supplier_food_id INTEGER REFERENCES surplus_food (id) ON DELETE CASCADE,
+                    status VARCHAR(255) DEFAULT NULL
                 )
             """)
             conn.commit()
+
+
+@app.post("/users/", response_model=User)
+async def create_user(user: User):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO \"user\" (username, phone, email, password, address, zip) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (user.username, user.phone, user.email, user.password, user.address, user.zip)
+            )
+            user.id = (await cur.fetchone())[0]
+            conn.commit()
+    return user
+
+
+@app.get("/users/{user_id}", response_model=User)
+async def get_user(user_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT * FROM \"user\" WHERE id = %s",
+                (user_id,)
+            )
+            result = await cur.fetchone()
+            if result:
+                user_data = {
+                    "id": result[0],
+                    "username": result[1],
+                    "phone": result[2],
+                    "email": result[3],
+                    "password": result[4],
+                    "address": result[5],
+                    "zip": result[6]
+                }
+                return User(**user_data)
+            else:
+                raise HTTPException(status_code=404, detail="User not found")
+
+
+@app.put("/users/{user_id}", response_model=User)
+async def update_user(user_id: int, user: User):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE \"user\" SET username = %s, phone = %s, email = %s, password = %s, "
+                "address = %s, zip = %s WHERE id = %s",
+                (user.username, user.phone, user.email, user.password, user.address, user.zip, user_id)
+            )
+            conn.commit()
+    return user
+
+
+@app.delete("/users/{user_id}")
+async def delete_user(user_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM \"user\" WHERE id = %s",
+                (user_id,)
+            )
+            conn.commit()
+    return {"message": "User deleted"}
+
 
 @app.post("/consumers/", response_model=Consumer)
 async def create_consumer(consumer: Consumer):
@@ -164,13 +228,14 @@ async def create_consumer(consumer: Consumer):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO consumer (conn_type, phone_no, email, password) "
-                "VALUES (%s, %s, %s, %s) RETURNING id",
-                (consumer.conn_type, consumer.phone_no, consumer.email, consumer.password)
+                "INSERT INTO consumer (user_id, type, license) "
+                "VALUES (%s, %s, %s) RETURNING id",
+                (consumer.user_id, consumer.type, consumer.license)
             )
             consumer.id = (await cur.fetchone())[0]
             conn.commit()
     return consumer
+
 
 @app.get("/consumers/{consumer_id}", response_model=Consumer)
 async def get_consumer(consumer_id: int):
@@ -185,10 +250,9 @@ async def get_consumer(consumer_id: int):
             if result:
                 consumer_data = {
                     "id": result[0],
-                    "conn_type": result[1],
-                    "phone_no": result[2],
-                    "email": result[3],
-                    "password": result[4]
+                    "user_id": result[1],
+                    "type": result[2],
+                    "license": result[3]
                 }
                 return Consumer(**consumer_data)
             else:
@@ -201,12 +265,12 @@ async def update_consumer(consumer_id: int, consumer: Consumer):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE consumer SET conn_type = %s, phone_no = %s, email = %s, password = %s "
-                "WHERE id = %s",
-                (consumer.conn_type, consumer.phone_no, consumer.email, consumer.password, consumer_id)
+                "UPDATE consumer SET user_id = %s, type = %s, license = %s WHERE id = %s",
+                (consumer.user_id, consumer.type, consumer.license, consumer_id)
             )
             conn.commit()
     return consumer
+
 
 @app.delete("/consumers/{consumer_id}")
 async def delete_consumer(consumer_id: int):
@@ -220,186 +284,22 @@ async def delete_consumer(consumer_id: int):
             conn.commit()
     return {"message": "Consumer deleted"}
 
-@app.get("/conn_individual/", response_model=List[ConnIndividual])
-async def get_all_conn_individuals():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM conn_individual")
-            results = await cur.fetchall()
-            column_names = [desc[0] for desc in cur.description]
-            conn_individuals = []
-            for result in results:
-                conn_individual_data = dict(zip(column_names, result))
-                conn_individuals.append(ConnIndividual(**conn_individual_data))
-            return conn_individuals
 
-
-@app.post("/conn_individual/", response_model=ConnIndividual)
-async def create_conn_individual(conn_individual: ConnIndividual):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "INSERT INTO conn_individual (ini_name, add, zip, consumer_id) "
-                "VALUES (%s, %s, %s, %s) RETURNING id",
-                (conn_individual.ini_name, conn_individual.add, conn_individual.zip, conn_individual.consumer_id)
-            )
-            conn_individual.id = (await cur.fetchone())[0]
-            conn.commit()
-    return conn_individual
-
-@app.get("/conn_individual/{conn_individual_id}", response_model=ConnIndividual)
-async def get_conn_individual(conn_individual_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT * FROM conn_individual WHERE id = %s",
-                (conn_individual_id,)
-            )
-            result = await cur.fetchone()
-            if result:
-                conn_individual_data = {
-                    "id": result[0],
-                    "ini_name": result[1],
-                    "add": result[2],
-                    "zip": result[3],
-                    "consumer_id": result[4]
-                }
-                return ConnIndividual(**conn_individual_data)
-            else:
-                raise HTTPException(status_code=404, detail="Connection Individual not found")
-
-@app.put("/conn_individual/{conn_individual_id}", response_model=ConnIndividual)
-async def update_conn_individual(conn_individual_id: int, conn_individual: ConnIndividual):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE conn_individual SET ini_name = %s, add = %s, zip = %s, consumer_id = %s "
-                "WHERE id = %s",
-                (conn_individual.ini_name, conn_individual.add, conn_individual.zip, conn_individual.consumer_id, conn_individual_id)
-            )
-            conn.commit()
-    return conn_individual
-
-@app.delete("/conn_individual/{conn_individual_id}")
-async def delete_conn_individual(conn_individual_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "DELETE FROM conn_individual WHERE id = %s",
-                (conn_individual_id,)
-            )
-            conn.commit()
-    return {"message": "Connection Individual deleted"}
-
-@app.get("/conn_individual/", response_model=List[ConnIndividual])
-async def get_all_conn_individuals():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM conn_individual")
-            results = await cur.fetchall()
-            conn_individuals = [ConnIndividual(**dict(zip(cur.description, result))) for result in results]
-            return conn_individuals
-
-@app.post("/conn_ngo/", response_model=ConnNgo)
-async def create_conn_ngo(conn_ngo: ConnNgo):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "INSERT INTO conn_ngo (ngo_name, add, zip, licence, consumer_id) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (conn_ngo.ngo_name, conn_ngo.add, conn_ngo.zip, conn_ngo.licence, conn_ngo.consumer_id)
-            )
-            conn_ngo.id = (await cur.fetchone())[0]
-            conn.commit()
-    return conn_ngo
-
-@app.get("/conn_ngo/{conn_ngo_id}", response_model=ConnNgo)
-async def get_conn_ngo(conn_ngo_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT * FROM conn_ngo WHERE id = %s",
-                (conn_ngo_id,)
-            )
-            result = await cur.fetchone()
-            if result:
-                conn_ngo_data = {
-                    "id": result[0],
-                    "ngo_name": result[1],
-                    "add": result[2],
-                    "zip": result[3],
-                    "licence": result[4],
-                    "consumer_id": result[5]
-                }
-                return ConnNgo(**conn_ngo_data)
-            else:
-                raise HTTPException(status_code=404, detail="Connection NGO not found")
-
-
-@app.put("/conn_ngo/{conn_ngo_id}", response_model=ConnNgo)
-async def update_conn_ngo(conn_ngo_id: int, conn_ngo: ConnNgo):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE conn_ngo SET ngo_name = %s, add = %s, zip = %s, licence = %s, consumer_id = %s "
-                "WHERE id = %s",
-                (conn_ngo.ngo_name, conn_ngo.add, conn_ngo.zip, conn_ngo.licence, conn_ngo.consumer_id, conn_ngo_id)
-            )
-            conn.commit()
-    return conn_ngo
-
-@app.delete("/conn_ngo/{conn_ngo_id}")
-async def delete_conn_ngo(conn_ngo_id: int):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "DELETE FROM conn_ngo WHERE id = %s",
-                (conn_ngo_id,)
-            )
-            conn.commit()
-    return {"message": "Connection NGO deleted"}
-
-@app.get("/conn_ngo/", response_model=List[ConnNgo])
-async def get_all_conn_ngos():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM conn_ngo")
-            results = await cur.fetchall()
-            column_names = [desc[0] for desc in cur.description]
-            conn_ngos = []
-            for result in results:
-                conn_ngo_data = dict(zip(column_names, result))
-                conn_ngos.append(ConnNgo(**conn_ngo_data))
-            return conn_ngos
-
-
-# POST endpoint to create a new supplier
 @app.post("/suppliers/", response_model=Supplier)
 async def create_supplier(supplier: Supplier):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO supplier (name, type, phone, email, password) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (supplier.name, supplier.type, supplier.phone, supplier.email, supplier.password)
+                "INSERT INTO supplier (user_id, type, masked, license) "
+                "VALUES (%s, %s, %s, %s) RETURNING id",
+                (supplier.user_id, supplier.type, supplier.masked, supplier.license)
             )
             supplier.id = (await cur.fetchone())[0]
             conn.commit()
     return supplier
 
-# GET endpoint to retrieve a supplier
+
 @app.get("/suppliers/{supplier_id}", response_model=Supplier)
 async def get_supplier(supplier_id: int):
     pool = await get_pool()
@@ -413,32 +313,29 @@ async def get_supplier(supplier_id: int):
             if result:
                 supplier_data = {
                     "id": result[0],
-                    "name": result[1],
+                    "user_id": result[1],
                     "type": result[2],
-                    "phone": result[3],
-                    "email": result[4],
-                    "password": result[5]
+                    "masked": result[3],
+                    "license": result[4]
                 }
                 return Supplier(**supplier_data)
             else:
                 raise HTTPException(status_code=404, detail="Supplier not found")
 
 
-# PUT endpoint to update a supplier
 @app.put("/suppliers/{supplier_id}", response_model=Supplier)
 async def update_supplier(supplier_id: int, supplier: Supplier):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE supplier SET name = %s, type = %s, phone = %s, email = %s, password = %s "
-                "WHERE id = %s",
-                (supplier.name, supplier.type, supplier.phone, supplier.email, supplier.password, supplier_id)
+                "UPDATE supplier SET user_id = %s, type = %s, masked = %s, license = %s WHERE id = %s",
+                (supplier.user_id, supplier.type, supplier.masked, supplier.license, supplier_id)
             )
             conn.commit()
     return supplier
 
-# DELETE endpoint to delete a supplier
+
 @app.delete("/suppliers/{supplier_id}")
 async def delete_supplier(supplier_id: int):
     pool = await get_pool()
@@ -452,141 +349,262 @@ async def delete_supplier(supplier_id: int):
     return {"message": "Supplier deleted"}
 
 
-# POST endpoint to create a new fnb
-@app.post("/fnb/", response_model=Fnb)
-async def create_fnb(fn: Fnb):
+@app.post("/requested-food/", response_model=RequestedFood)
+async def create_requested_food(requested_food: RequestedFood):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute(
-                "INSERT INTO fnb (supplier_id, name, address, zip, licence) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (fn.supplier_id, fn.name, fn.address, fn.zip, fn.licence)
-            )
-            fn.id = (await cur.fetchone())[0]
-            conn.commit()
-    return fn
+            # Check if time is provided, otherwise set it to the current timestamp
+            if requested_food.time is None:
+                requested_food.time = datetime.now()
 
-# GET endpoint to retrieve an fnb
-@app.get("/fnb/{fnb_id}", response_model=Fnb)
-async def get_fnb(fnb_id: int):
+            await cur.execute(
+                "INSERT INTO requested_food (consumer_id, category_type, vegetarian_status, quantity, active, time) "
+                "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (requested_food.consumer_id, requested_food.category_type, requested_food.vegetarian_status,
+                 requested_food.quantity, requested_food.active, requested_food.time)
+            )
+            requested_food.id = (await cur.fetchone())[0]
+            conn.commit()
+    return requested_food
+
+
+@app.get("/requested-food/{requested_food_id}", response_model=RequestedFood)
+async def get_requested_food(requested_food_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT * FROM fnb WHERE id = %s",
-                (fnb_id,)
+                "SELECT * FROM requested_food WHERE id = %s",
+                (requested_food_id,)
             )
             result = await cur.fetchone()
             if result:
-                fnb_data = {
+                requested_food_data = {
+                    "id": result[0],
+                    "consumer_id": result[1],
+                    "category_type": result[2],
+                    "vegetarian_status": result[3],
+                    "quantity": result[4],
+                    "active": result[5],
+                    "time": result[6]
+                }
+                return RequestedFood(**requested_food_data)
+            else:
+                raise HTTPException(status_code=404, detail="Requested food not found")
+
+
+@app.put("/requested-food/{requested_food_id}", response_model=RequestedFood)
+async def update_requested_food(requested_food_id: int, requested_food: RequestedFood):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE requested_food SET consumer_id = %s, category_type = %s, "
+                "vegetarian_status = %s, quantity = %s, active = %s, time = %s "
+                "WHERE id = %s",
+                (requested_food.consumer_id, requested_food.category_type, requested_food.vegetarian_status,
+                 requested_food.quantity, requested_food.active, requested_food.time, requested_food_id)
+            )
+            conn.commit()
+    return requested_food
+
+
+@app.delete("/requested-food/{requested_food_id}")
+async def delete_requested_food(requested_food_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM requested_food WHERE id = %s",
+                (requested_food_id,)
+            )
+            conn.commit()
+    return {"message": "Requested food deleted"}
+
+
+@app.post("/surplus-food/", response_model=SurplusFood)
+async def create_surplus_food(surplus_food: SurplusFood):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # Check if expiry is provided, otherwise set it to the current timestamp
+            if surplus_food.expiry is None:
+                surplus_food.expiry = datetime.now()
+
+            await cur.execute(
+                "INSERT INTO surplus_food (supplier_id, category_type, vegetarian_status, quantity, active, expiry, description) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+                (surplus_food.supplier_id, surplus_food.category_type, surplus_food.vegetarian_status,
+                 surplus_food.quantity, surplus_food.active, surplus_food.expiry, surplus_food.description)
+            )
+            surplus_food.id = (await cur.fetchone())[0]
+            conn.commit()
+    return surplus_food
+
+
+@app.get("/surplus-food/{surplus_food_id}", response_model=SurplusFood)
+async def get_surplus_food(surplus_food_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT * FROM surplus_food WHERE id = %s",
+                (surplus_food_id,)
+            )
+            result = await cur.fetchone()
+            if result:
+                surplus_food_data = {
                     "id": result[0],
                     "supplier_id": result[1],
-                    "name": result[2],
-                    "address": result[3],
-                    "zip": result[4],
-                    "licence": result[5]
+                    "category_type": result[2],
+                    "vegetarian_status": result[3],
+                    "quantity": result[4],
+                    "active": result[5],
+                    "expiry": result[6],
+                    "description": result[7]
                 }
-                return Fnb(**fnb_data)
+                return SurplusFood(**surplus_food_data)
             else:
-                raise HTTPException(status_code=404, detail="Fnb not found")
+                raise HTTPException(status_code=404, detail="Surplus food not found")
 
 
-# PUT endpoint to update an fnb
-@app.put("/fnb/{fnb_id}", response_model=Fnb)
-async def update_fnb(fnb_id: int, fnb: Fnb):
+@app.put("/surplus-food/{surplus_food_id}", response_model=SurplusFood)
+async def update_surplus_food(surplus_food_id: int, surplus_food: SurplusFood):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE fnb SET supplier_id = %s, name = %s, address = %s, zip = %s, licence = %s "
+                "UPDATE surplus_food SET supplier_id = %s, category_type = %s, "
+                "vegetarian_status = %s, quantity = %s, active = %s, "
+                " expiry = %s, description = %s "
                 "WHERE id = %s",
-                (fnb.supplier_id, fnb.name, fnb.address, fnb.zip, fnb.licence, fnb_id)
+                (surplus_food.supplier_id, surplus_food.category_type, surplus_food.vegetarian_status,
+                 surplus_food.quantity, surplus_food.active,
+                 surplus_food.expiry, surplus_food.description, surplus_food_id)
             )
             conn.commit()
-    return fnb
+    return surplus_food
 
-# DELETE endpoint to delete an fnb
-@app.delete("/fnb/{fnb_id}")
-async def delete_fnb(fnb_id: int):
+
+@app.delete("/surplus-food/{surplus_food_id}")
+async def delete_surplus_food(surplus_food_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "DELETE FROM fnb WHERE id = %s",
-                (fnb_id,)
+                "DELETE FROM surplus_food WHERE id = %s",
+                (surplus_food_id,)
             )
             conn.commit()
-    return {"message": "Fnb deleted"}
+    return {"message": "Surplus food deleted"}
 
 
-# POST endpoint to create a new individual
-@app.post("/individuals/", response_model=Individual)
-async def create_individual(individual: Individual):
+@app.post("/matching/", response_model=Matching)
+async def create_matching(matching: Matching):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO individual (supplier_id, address, zip) "
+                "INSERT INTO matching (requested_food_id, supplier_food_id, status) "
                 "VALUES (%s, %s, %s) RETURNING id",
-                (individual.supplier_id, individual.address, individual.zip)
+                (matching.requested_food_id, matching.supplier_food_id, matching.status),
             )
-            individual.id = (await cur.fetchone())[0]
+            matching.id = (await cur.fetchone())[0]
             conn.commit()
-    return individual
+    return matching
 
-# GET endpoint to retrieve an individual
-@app.get("/individuals/{individual_id}", response_model=Individual)
-async def get_individual(individual_id: int):
+
+@app.get("/matching/{matching_id}", response_model=Matching)
+async def get_matching(matching_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT * FROM individual WHERE id = %s",
-                (individual_id,)
+                "SELECT * FROM matching WHERE id = %s",
+                (matching_id,),
             )
             result = await cur.fetchone()
             if result:
-                individual_data = {
+                matching_data = {
                     "id": result[0],
-                    "supplier_id": result[1],
-                    "address": result[2],
-                    "zip": result[3]
+                    "requested_food_id": result[1],
+                    "supplier_food_id": result[2],
+                    "status": result[3],
                 }
-                return Individual(**individual_data)
+                return Matching(**matching_data)
             else:
-                raise HTTPException(status_code=404, detail="Individual not found")
+                raise HTTPException(status_code=404, detail="Matching not found")
 
 
-# PUT endpoint to update an individual
-@app.put("/individuals/{individual_id}", response_model=Individual)
-async def update_individual(individual_id: int, individual: Individual):
+@app.put("/matching/{matching_id}", response_model=Matching)
+async def update_matching(matching_id: int, matching: Matching):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE individual SET supplier_id = %s, address = %s, zip = %s "
-                "WHERE id = %s",
-                (individual.supplier_id, individual.address, individual.zip, individual_id)
+                "UPDATE matching SET requested_food_id = %s, supplier_food_id = %s, status = %s WHERE id = %s",
+                (matching.requested_food_id, matching.supplier_food_id, matching.status, matching_id),
             )
             conn.commit()
-    return individual
+    return matching
 
-# DELETE endpoint to delete an individual
-@app.delete("/individuals/{individual_id}")
-async def delete_individual(individual_id: int):
+
+@app.delete("/matching/{matching_id}")
+async def delete_matching(matching_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "DELETE FROM individual WHERE id = %s",
-                (individual_id,)
+                "DELETE FROM matching WHERE id = %s",
+                (matching_id,),
             )
             conn.commit()
-    return {"message": "Individual deleted"}
+    return {"message": "Matching deleted"}
 
-# GET endpoint to retrieve all suppliers
-@app.get("/suppliers", response_model=List[Supplier])
+
+@app.get("/users/", response_model=List[User])
+async def get_all_users():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT * FROM \"user\"")
+            results = await cur.fetchall()
+            users = []
+            for result in results:
+                user_data = {
+                    "id": result[0],
+                    "username": result[1],
+                    "phone": result[2],
+                    "email": result[3],
+                    "password": result[4],
+                    "address": result[5],
+                    "zip": result[6],
+                }
+                users.append(User(**user_data))
+            return users
+
+
+@app.get("/consumers/", response_model=List[Consumer])
+async def get_all_consumers():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT * FROM consumer")
+            results = await cur.fetchall()
+            consumers = []
+            for result in results:
+                consumer_data = {
+                    "id": result[0],
+                    "user_id": result[1],
+                    "type": result[2],
+                    "license": result[3],
+                }
+                consumers.append(Consumer(**consumer_data))
+            return consumers
+
+
+@app.get("/suppliers/", response_model=List[Supplier])
 async def get_all_suppliers():
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -597,51 +615,203 @@ async def get_all_suppliers():
             for result in results:
                 supplier_data = {
                     "id": result[0],
-                    "name": result[1],
+                    "user_id": result[1],
                     "type": result[2],
-                    "phone": result[3],
-                    "email": result[4],
-                    "password": result[5]
+                    "masked": result[3],
+                    "license": result[4],
                 }
                 suppliers.append(Supplier(**supplier_data))
             return suppliers
 
-# GET endpoint to retrieve all fnbs
-@app.get("/fnbs", response_model=List[Fnb])
-async def get_all_fnbs():
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM fnb")
-            results = await cur.fetchall()
-            fnbs = []
-            for result in results:
-                fnb_data = {
-                    "id": result[0],
-                    "supplier_id": result[1],
-                    "name": result[2],
-                    "address": result[3],
-                    "zip": result[4],
-                    "licence": result[5]
-                }
-                fnbs.append(Fnb(**fnb_data))
-            return fnbs
 
-# GET endpoint to retrieve all individuals
-@app.get("/individuals", response_model=List[Individual])
-async def get_all_individuals():
+@app.get("/requested-food/", response_model=List[RequestedFood])
+async def get_all_requested_food():
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute("SELECT * FROM individual")
+            await cur.execute("SELECT * FROM requested_food")
             results = await cur.fetchall()
-            individuals = []
+            requested_food_list = []
             for result in results:
-                individual_data = {
+                requested_food_data = {
+                    "id": result[0],
+                    "consumer_id": result[1],
+                    "category_type": result[2],
+                    "vegetarian_status": result[3],
+                    "quantity": result[4],
+                    "active": result[5],
+                    "time": result[6],
+                }
+                requested_food_list.append(RequestedFood(**requested_food_data))
+            return requested_food_list
+
+
+@app.get("/surplus-food/", response_model=List[SurplusFood])
+async def get_all_surplus_food():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT * FROM surplus_food")
+            results = await cur.fetchall()
+            surplus_food_list = []
+            for result in results:
+                surplus_food_data = {
                     "id": result[0],
                     "supplier_id": result[1],
-                    "address": result[2],
-                    "zip": result[3]
+                    "category_type": result[2],
+                    "vegetarian_status": result[3],
+                    "quantity": result[4],
+                    "active": result[5],
+                    "expiry": result[6],
+                    "description": result[7],
                 }
-                individuals.append(Individual(**individual_data))
-            return individuals
+                surplus_food_list.append(SurplusFood(**surplus_food_data))
+            return surplus_food_list
+
+
+@app.get("/matching/", response_model=List[Matching])
+async def get_all_matching():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT * FROM matching")
+            results = await cur.fetchall()
+            matching_list = []
+            for result in results:
+                matching_data = {
+                    "id": result[0],
+                    "requested_food_id": result[1],
+                    "supplier_food_id": result[2],
+                    "status": result[3],
+                }
+                matching_list.append(Matching(**matching_data))
+            return matching_list
+
+
+@app.post("/category-type/", response_model=CategoryType)
+async def create_category_type(category_type: CategoryType):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO category_type (category) VALUES (%s) RETURNING id",
+                (category_type.category,)
+            )
+            category_type.id = (await cur.fetchone())[0]
+            conn.commit()
+    return category_type
+
+
+@app.get("/category-type/{category_type_id}", response_model=CategoryType)
+async def get_category_type(category_type_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT * FROM category_type WHERE id = %s",
+                (category_type_id,)
+            )
+            result = await cur.fetchone()
+            if result:
+                category_type_data = {
+                    "id": result[0],
+                    "category": result[1]
+                }
+                return CategoryType(**category_type_data)
+            else:
+                raise HTTPException(status_code=404, detail="Category type not found")
+
+
+@app.put("/category-type/{category_type_id}", response_model=CategoryType)
+async def update_category_type(category_type_id: int, category_type: CategoryType):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE category_type SET category = %s WHERE id = %s",
+                (category_type.category, category_type_id)
+            )
+            conn.commit()
+    return category_type
+
+
+@app.delete("/category-type/{category_type_id}")
+async def delete_category_type(category_type_id: int):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM category_type WHERE id = %s",
+                (category_type_id,)
+            )
+            conn.commit()
+    return {"message": "Category type deleted"}
+
+
+@app.get("/category-type/", response_model=List[CategoryType])
+async def get_all_category_types():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT * FROM category_type"
+            )
+            category_types = []
+            async for result in cur:
+                category_type_data = {
+                    "id": result[0],
+                    "category": result[1]
+                }
+                category_types.append(CategoryType(**category_type_data))
+            return category_types
+
+
+from fastapi import Path
+
+
+@app.delete("/clear_table/{table_name}")
+async def clear_table(table_name: str = Path(..., description="Name of the table to clear")):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(f"DELETE FROM {table_name}")
+            conn.commit()
+
+    return {"message": f"All data from {table_name} table has been cleared."}
+
+
+from fastapi import Path
+
+
+@app.delete("/clear_table/{table_name}")
+async def clear_table(table_name: str = Path(..., description="Name of the table to clear")):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(f"DELETE FROM {table_name}")
+            conn.commit()
+
+    return {"message": f"All data from {table_name} table has been cleared."}
+
+
+@app.delete("/delete_tables")
+async def delete_tables():
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            # Drop matching table
+            await cur.execute("DROP TABLE IF EXISTS matching")
+            # Drop surplus_food table
+            await cur.execute("DROP TABLE IF EXISTS surplus_food")
+            # Drop requested_food table
+            await cur.execute("DROP TABLE IF EXISTS requested_food")
+            # Drop supplier table
+            await cur.execute("DROP TABLE IF EXISTS supplier")
+            # Drop consumer table
+            await cur.execute("DROP TABLE IF EXISTS consumer")
+            # Drop user table
+            await cur.execute("DROP TABLE IF EXISTS \"user\"")
+
+            conn.commit()
+
+    return {"message": "All tables have been deleted."}
